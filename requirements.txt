@@ -2,3 +2,5 @@ python-telegram-bot
 anthropic
 apscheduler
 Pillow
+arabic-reshaper
+python-bidi
