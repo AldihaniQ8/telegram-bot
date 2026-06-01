@@ -4,3 +4,4 @@ apscheduler
 Pillow
 arabic-reshaper
 python-bidi
+feedparser
