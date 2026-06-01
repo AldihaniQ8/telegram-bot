@@ -2,7 +2,7 @@ import os
 import io
 import datetime
 import anthropic
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -12,175 +12,117 @@ CHAT_ID = os.environ.get("CHAT_ID")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-def wrap_text(text, max_chars=22):
-    words = text.split()
-    lines = []
-    line = ""
-    for word in words:
-        if len(line + word) <= max_chars:
-            line += word + " "
-        else:
-            if line:
-                lines.append(line.strip())
-            line = word + " "
-    if line:
-        lines.append(line.strip())
-    return lines
-
 def create_news_image(title, summary, number):
     W, H = 1080, 1080
     img = Image.new("RGB", (W, H))
     draw = ImageDraw.Draw(img)
 
-    # خلفية متدرجة داكنة
     for i in range(H):
         ratio = i / H
-        r = int(5 + ratio * 15)
-        g = int(5 + ratio * 10)
-        b = int(25 + ratio * 35)
-        draw.line([(0, i), (W, i)], fill=(r, g, b))
+        draw.line([(0, i), (W, i)], fill=(
+            int(8 + ratio * 12),
+            int(8 + ratio * 8),
+            int(28 + ratio * 32)
+        ))
 
-    # إطار خارجي ذهبي
     draw.rectangle([15, 15, W-15, H-15], outline=(212, 175, 55), width=4)
-    draw.rectangle([22, 22, W-22, H-22], outline=(212, 175, 55), width=1)
+    draw.rectangle([15, 15, W-15, 145], fill=(15, 55, 115))
 
-    # شريط علوي
-    draw.rectangle([15, 15, W-15, 140], fill=(20, 60, 120))
+    try:
+        font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 44)
+        font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+        font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+        font_num = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
+    except:
+        font_lg = font_md = font_sm = font_num = ImageFont.load_default()
 
-    # نجوم زخرفية
-    for x in [60, 100, W-100, W-60]:
-        draw.ellipse([x-5, 70-5, x+5, 70+5], fill=(212, 175, 55))
+    draw.text((W//2, 80), "Tech News", fill=(255, 255, 255), font=font_lg, anchor="mm")
 
-    # رقم الخبر - دائرة
-    draw.ellipse([45, 160, 125, 240], fill=(212, 175, 55))
-    draw.ellipse([50, 165, 120, 235], fill=(20, 60, 120))
+    draw.ellipse([45, 158, 128, 242], fill=(212, 175, 55))
+    draw.ellipse([52, 165, 121, 235], fill=(15, 55, 115))
+    draw.text((86, 200), str(number), fill=(212, 175, 55), font=font_num, anchor="mm")
 
-    # خط فاصل تحت الرقم
-    draw.line([(80, 270), (W-80, 270)], fill=(212, 175, 55), width=2)
+    draw.line([(80, 275), (W-80, 275)], fill=(212, 175, 55), width=2)
 
-    # نقاط زخرفية
-    for x in [80, W//2, W-80]:
-        draw.ellipse([x-4, 290-4, x+4, 290+4], fill=(212, 175, 55))
+    # العنوان - تقسيم السطور
+    words = title.split()
+    lines, line = [], ""
+    for w in words:
+        if len(line + w) <= 18:
+            line += w + " "
+        else:
+            lines.append(line.strip())
+            line = w + " "
+    lines.append(line.strip())
 
-    # خط فاصل قبل الملخص
+    y = 310
+    for l in lines[:3]:
+        draw.text((W//2, y), l, fill=(100, 200, 255), font=font_lg, anchor="mm")
+        y += 62
+
     draw.line([(80, 560), (W-80, 560)], fill=(212, 175, 55), width=1)
 
-    # شريط سفلي
-    draw.rectangle([15, H-130, W-15, H-15], fill=(20, 60, 120))
-    draw.line([(80, H-140), (W-80, H-140)], fill=(212, 175, 55), width=1)
+    # الملخص
+    words2 = summary.split()
+    lines2, line2 = [], ""
+    for w in words2:
+        if len(line2 + w) <= 22:
+            line2 += w + " "
+        else:
+            lines2.append(line2.strip())
+            line2 = w + " "
+    lines2.append(line2.strip())
 
-    # حفظ الصورة الأساسية بدون نص
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf, title, summary, number
+    y2 = 595
+    for l in lines2[:6]:
+        draw.text((W//2, y2), l, fill=(200, 200, 210), font=font_md, anchor="mm")
+        y2 += 54
 
-async def send_news_image(context_or_bot, chat_id, title, summary, number):
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        import arabic_reshaper
-        from bidi.algorithm import get_display
-
-        W, H = 1080, 1080
-        img = Image.new("RGB", (W, H))
-        draw = ImageDraw.Draw(img)
-
-        for i in range(H):
-            ratio = i / H
-            r = int(5 + ratio * 15)
-            g = int(5 + ratio * 10)
-            b = int(25 + ratio * 35)
-            draw.line([(0, i), (W, i)], fill=(r, g, b))
-
-        draw.rectangle([15, 15, W-15, H-15], outline=(212, 175, 55), width=4)
-        draw.rectangle([15, 15, W-15, 140], fill=(20, 60, 120))
-        draw.ellipse([45, 160, 125, 240], fill=(212, 175, 55))
-        draw.ellipse([50, 165, 120, 235], fill=(20, 60, 120))
-        draw.line([(80, 270), (W-80, 270)], fill=(212, 175, 55), width=2)
-        draw.line([(80, 560), (W-80, 560)], fill=(212, 175, 55), width=1)
-        draw.rectangle([15, H-130, W-15, H-15], fill=(20, 60, 120))
-
-        try:
-            font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
-            font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34)
-            font_num = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-        except:
-            font_title = font_body = font_num = font_small = ImageFont.load_default()
-
-        reshaped_header = get_display(arabic_reshaper.reshape("أخبار التقنية"))
-        draw.text((W//2, 77), reshaped_header, fill=(255, 255, 255), font=font_title, anchor="mm")
-
-        draw.text((85, 200), str(number), fill=(212, 175, 55), font=font_num, anchor="mm")
-
-        reshaped_title = get_display(arabic_reshaper.reshape(title))
-        title_lines = wrap_text(reshaped_title, 20)
-        y = 320
-        for line in title_lines[:3]:
-            draw.text((W//2, y), line, fill=(100, 200, 255), font=font_title, anchor="mm")
-            y += 60
-
-        reshaped_summary = get_display(arabic_reshaper.reshape(summary))
-        summary_lines = wrap_text(reshaped_summary, 24)
-        y = 600
-        for line in summary_lines[:6]:
-            draw.text((W//2, y), line, fill=(200, 200, 200), font=font_body, anchor="mm")
-            y += 50
-
-        tags = get_display(arabic_reshaper.reshape("#تقنية  #أخبار_التقنية  #تكنولوجيا"))
-        draw.text((W//2, H-90), tags, fill=(212, 175, 55), font=font_small, anchor="mm")
-
-        date_str = datetime.datetime.now().strftime("%Y/%m/%d")
-        draw.text((W//2, H-45), date_str, fill=(150, 150, 150), font=font_small, anchor="mm")
-
-    except Exception:
-        W, H = 1080, 1080
-        img = Image.new("RGB", (W, H), color=(10, 10, 30))
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([15, 15, W-15, H-15], outline=(212, 175, 55), width=4)
+    draw.rectangle([15, H-125, W-15, H-15], fill=(15, 55, 115))
+    draw.text((W//2, H-85), "#Tech #TechNews #Technology", fill=(212, 175, 55), font=font_sm, anchor="mm")
+    draw.text((W//2, H-42), datetime.datetime.now().strftime("%Y/%m/%d"), fill=(160, 160, 160), font=font_sm, anchor="mm")
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-
-    bot = context_or_bot if hasattr(context_or_bot, 'send_photo') else context_or_bot.bot
-    await bot.send_photo(
-        chat_id=chat_id,
-        photo=buf,
-        caption=f"🔥 {title}\n\n#تقنية #أخبار_التقنية #تكنولوجيا"
-    )
+    return buf
 
 async def get_news_and_post(context):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     message = client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=2048,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{"role": "user", "content": f"ابحث عن أحدث 5 أخبار تقنية اليوم {today} وأعطني لكل خبر:\nTITLE: [العنوان]\nSUMMARY: [ملخص 3 جمل]\n---"}]
+        messages=[{"role": "user", "content": f"""
+اكتب 5 أخبار تقنية مهمة وحديثة (تاريخ اليوم {today}).
+لكل خبر اكتب فقط بهذا الشكل الدقيق:
+TITLE: [عنوان قصير بالانجليزي - لا يزيد 8 كلمات]
+SUMMARY: [ملخص بالانجليزي في 3 جمل قصيرة]
+---
+        """}]
     )
 
-    response = ""
-    for block in message.content:
-        if hasattr(block, 'text'):
-            response += block.text
+    response = message.content[0].text
+    items = response.strip().split("---")
 
-    news_items = response.strip().split("---")
-    for i, item in enumerate(news_items[:5], 1):
+    for i, item in enumerate(items[:5], 1):
         if "TITLE:" not in item:
             continue
-        lines = item.strip().split("\n")
-        title = ""
-        summary = ""
-        for line in lines:
+        title, summary = "", ""
+        for line in item.strip().split("\n"):
             if line.startswith("TITLE:"):
                 title = line.replace("TITLE:", "").strip()
             elif line.startswith("SUMMARY:"):
                 summary = line.replace("SUMMARY:", "").strip()
         if title and summary:
-            await send_news_image(context, CHAT_ID, title, summary, i)
+            img = create_news_image(title, summary, i)
+            await context.bot.send_photo(
+                chat_id=CHAT_ID,
+                photo=img,
+                caption=f"🔥 {title}\n\n#TechNews #Technology #AI"
+            )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("مرحباً! أنا بوت ذكاء اصطناعي مدعوم بـ Claude 🤖\nاكتب /news للحصول على أحدث أخبار التقنية كصور!")
+    await update.message.reply_text("مرحباً! أنا بوت ذكاء اصطناعي مدعوم بـ Claude 🤖\nاكتب /news للحصول على أخبار التقنية!")
 
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ جاري تجهيز الأخبار...")
@@ -205,7 +147,6 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("news", news_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    job_queue = app.job_queue
-    job_queue.run_daily(get_news_and_post, time=datetime.time(0, 0, 0))
+    app.job_queue.run_daily(get_news_and_post, time=datetime.time(0, 0, 0))
     print("البوت يعمل ✅")
     app.run_polling()
