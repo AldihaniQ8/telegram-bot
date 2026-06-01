@@ -104,7 +104,7 @@ SUMMARY: [ملخص بالانجليزي في 3 جمل قصيرة]
     response = message.content[0].text
     items = response.strip().split("---")
 
-    for i, item in enumerate(items[:5], 1):
+    for i, item in enumerate(items[:1], 1):
         if "TITLE:" not in item:
             continue
         title, summary = "", ""
