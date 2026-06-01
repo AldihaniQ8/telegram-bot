@@ -1,6 +1,7 @@
 import os
 import io
 import datetime
+import urllib.request
 import anthropic
 import feedparser
 from PIL import Image, ImageDraw, ImageFont
@@ -12,6 +13,13 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+FONT_URL = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo-Bold.ttf"
+FONT_PATH = "/tmp/Cairo-Bold.ttf"
+
+def download_font():
+    if not os.path.exists(FONT_PATH):
+        urllib.request.urlretrieve(FONT_URL, FONT_PATH)
 
 def get_real_news():
     feeds = [
@@ -37,13 +45,13 @@ def translate_and_format(title, summary):
         model="claude-sonnet-4-5",
         max_tokens=300,
         messages=[{"role": "user", "content": f"""
-ترجم هذا الخبر للعربي واكتب ملخصاً قصيراً:
+ترجم هذا الخبر للعربي:
 العنوان: {title}
 المحتوى: {summary}
 
 اكتب فقط:
-TITLE: [العنوان المترجم - لا يزيد 8 كلمات]
-SUMMARY: [ملخص بالعربي في جملتين فقط]
+TITLE: [العنوان المترجم - لا يزيد 6 كلمات]
+SUMMARY: [ملخص بالعربي في جملتين فقط - لا يزيد 20 كلمة]
         """}]
     )
     response = msg.content[0].text
@@ -55,20 +63,30 @@ SUMMARY: [ملخص بالعربي في جملتين فقط]
             s = line.replace("SUMMARY:", "").strip()
     return t, s
 
-def wrap_text(text, max_chars=16):
+def wrap_arabic(text, font, max_width):
+    import arabic_reshaper
+    from bidi.algorithm import get_display
     words = text.split()
     lines, line = [], ""
     for w in words:
-        if len(line + w) <= max_chars:
-            line += w + " "
+        test = line + w + " "
+        reshaped = get_display(arabic_reshaper.reshape(test))
+        bbox = font.getbbox(reshaped)
+        if bbox[2] - bbox[0] <= max_width:
+            line = test
         else:
-            lines.append(line.strip())
+            if line:
+                lines.append(get_display(arabic_reshaper.reshape(line.strip())))
             line = w + " "
     if line:
-        lines.append(line.strip())
+        lines.append(get_display(arabic_reshaper.reshape(line.strip())))
     return lines
 
 def create_news_image(title, summary, number):
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+
+    download_font()
     W, H = 1080, 1080
     img = Image.new("RGB", (W, H))
     draw = ImageDraw.Draw(img)
@@ -85,15 +103,16 @@ def create_news_image(title, summary, number):
     draw.rectangle([15, 15, W-15, 160], fill=(15, 55, 115))
 
     try:
-        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-        font_title  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-        font_body   = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
-        font_num    = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 58)
-        font_small  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34)
+        font_header = ImageFont.truetype(FONT_PATH, 58)
+        font_title  = ImageFont.truetype(FONT_PATH, 52)
+        font_body   = ImageFont.truetype(FONT_PATH, 42)
+        font_num    = ImageFont.truetype(FONT_PATH, 62)
+        font_small  = ImageFont.truetype(FONT_PATH, 36)
     except:
         font_header = font_title = font_body = font_num = font_small = ImageFont.load_default()
 
-    draw.text((W//2, 88), "Tech News", fill=(255, 255, 255), font=font_header, anchor="mm")
+    header = get_display(arabic_reshaper.reshape("أخبار التقنية"))
+    draw.text((W//2, 88), header, fill=(255, 255, 255), font=font_header, anchor="mm")
 
     draw.ellipse([48, 175, 148, 275], fill=(212, 175, 55))
     draw.ellipse([55, 182, 141, 268], fill=(15, 55, 115))
@@ -101,25 +120,25 @@ def create_news_image(title, summary, number):
 
     draw.line([(80, 305), (W-80, 305)], fill=(212, 175, 55), width=3)
 
-    # العنوان
-    title_lines = wrap_text(title, 14)
+    title_lines = wrap_arabic(title, font_title, W - 200)
     y = 345
     for line in title_lines[:3]:
         draw.text((W//2, y), line, fill=(100, 210, 255), font=font_title, anchor="mm")
-        y += 68
+        y += 72
 
     draw.line([(80, 580), (W-80, 580)], fill=(212, 175, 55), width=2)
 
-    # الملخص
-    summary_lines = wrap_text(summary, 18)
-    y2 = 620
+    summary_lines = wrap_arabic(summary, font_body, W - 160)
+    y2 = 625
     for line in summary_lines[:5]:
         draw.text((W//2, y2), line, fill=(210, 210, 220), font=font_body, anchor="mm")
-        y2 += 62
+        y2 += 65
 
     draw.rectangle([15, H-145, W-15, H-15], fill=(15, 55, 115))
     draw.line([(80, H-150), (W-80, H-150)], fill=(212, 175, 55), width=2)
-    draw.text((W//2, H-100), "#تقنية  #أخبار_التقنية  #تكنولوجيا", fill=(212, 175, 55), font=font_small, anchor="mm")
+
+    tags = get_display(arabic_reshaper.reshape("#تقنية  #أخبار_التقنية  #تكنولوجيا"))
+    draw.text((W//2, H-100), tags, fill=(212, 175, 55), font=font_small, anchor="mm")
     draw.text((W//2, H-50), datetime.datetime.now().strftime("%Y/%m/%d"), fill=(160, 160, 160), font=font_small, anchor="mm")
 
     buf = io.BytesIO()
@@ -130,9 +149,8 @@ def create_news_image(title, summary, number):
 async def get_news_and_post(context):
     news_list = get_real_news()
     if not news_list:
-        await context.bot.send_message(chat_id=CHAT_ID, text="⚠️ تعذر جلب الأخبار الآن، حاول لاحقاً.")
+        await context.bot.send_message(chat_id=CHAT_ID, text="⚠️ تعذر جلب الأخبار الآن.")
         return
-
     for i, news in enumerate(news_list[:5], 1):
         title, summary = translate_and_format(news["title"], news["summary"])
         if title and summary:
