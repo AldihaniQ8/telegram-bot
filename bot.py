@@ -1,8 +1,8 @@
 import os
+import asyncio
 import anthropic
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
@@ -18,19 +18,15 @@ async def get_news_and_post(context):
         model="claude-sonnet-4-5",
         max_tokens=2048,
         messages=[{"role": "user", "content": """
-ابحث عن أحدث 5 أخبار تقنية اليوم وصمم لكل خبر بوست جاهز لمنصات التواصل الاجتماعي.
+اكتب أحدث 5 أخبار تقنية اليوم وصمم لكل خبر بوست لمنصات التواصل الاجتماعي:
 
-لكل خبر استخدم هذا التصميم:
 ━━━━━━━━━━━━━━━━
 🔥 [عنوان الخبر]
 ━━━━━━━━━━━━━━━━
-
 📌 التفاصيل:
-[ملخص الخبر في 2-3 جمل]
-
+[ملخص 2-3 جمل]
 💡 لماذا يهمك؟
-[أهمية الخبر]
-
+[الأهمية]
 #تقنية #تكنولوجيا #أخبار_التقنية
         """}]
     )
@@ -56,9 +52,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    scheduler = AsyncIOScheduler(timezone="Asia/Riyadh")
-    scheduler.add_job(get_news_and_post, "cron", hour=0, minute=0, args=[app])
-    scheduler.start()
+    job_queue = app.job_queue
+    job_queue.run_daily(get_news_and_post, time=__import__('datetime').time(0, 0, 0))
 
     print("البوت يعمل ✅")
     app.run_polling()
